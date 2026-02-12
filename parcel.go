@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 )
 
@@ -21,12 +22,12 @@ func (s ParcelStore) Add(p Parcel) (int, error) {
 		sql.Named("address", p.Address),
 		sql.Named("created_at", p.CreatedAt))
 	if err != nil {
-		return 0, fmt.Errorf("не удалось добавить строку в таблицу")
+		return 0, errors.New("failed to insert row into parcel table")
 	}
 
 	id, err := res.LastInsertId()
 	if err != nil {
-		return 0, fmt.Errorf("не удалось извлечь идентификатор последней добавленной записи")
+		return 0, errors.New("failed to get last insert id")
 	}
 
 	// верните идентификатор последней добавленной записи
@@ -40,13 +41,10 @@ func (s ParcelStore) Get(number int) (Parcel, error) {
 	p := Parcel{}
 	err := s.db.QueryRow("Select number, client, status, address, created_at from parcel where number = ?", number).Scan(&p.Number, &p.Client, &p.Status, &p.Address, &p.CreatedAt)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return p, err // важно вернуть оригинальный sql.ErrNoRows
-		}
-		return p, fmt.Errorf("не удалось прочитать строку по заданному номеру: %w", err)
+		return p, fmt.Errorf("failed to get parcel with number %d: %w", number, err)
 	}
 
-	return p, nil
+	return p, err
 }
 
 func (s ParcelStore) GetByClient(client int) ([]Parcel, error) {
@@ -54,7 +52,7 @@ func (s ParcelStore) GetByClient(client int) ([]Parcel, error) {
 	// здесь из таблицы может вернуться несколько строк
 	rows, err := s.db.Query("SELECT number, client, status, address, created_at FROM parcel WHERE client = ?", client)
 	if err != nil {
-		return nil, fmt.Errorf("не удалось прочитать строку по заданному клиенту")
+		return nil, fmt.Errorf("failed to get parcel for client %d: %w", client, err)
 	}
 	defer rows.Close()
 
@@ -64,7 +62,7 @@ func (s ParcelStore) GetByClient(client int) ([]Parcel, error) {
 		var p Parcel
 		err := rows.Scan(&p.Number, &p.Client, &p.Status, &p.Address, &p.CreatedAt)
 		if err != nil {
-			return nil, fmt.Errorf("не удалось прочитать строку по заданному клиенту")
+			return nil, fmt.Errorf("failed to get parcel for client %d: %w", client, err)
 		}
 		res = append(res, p)
 	}
@@ -81,7 +79,7 @@ func (s ParcelStore) SetStatus(number int, status string) error {
 	_, err := s.db.Exec("UPDATE parcel SET status = ? WHERE number = ?", status, number)
 
 	if err != nil {
-		return fmt.Errorf("не удалось обновить статус посылки")
+		return fmt.Errorf("failed to update parcel status: %w", err)
 	}
 	return nil
 }
@@ -89,19 +87,9 @@ func (s ParcelStore) SetStatus(number int, status string) error {
 func (s ParcelStore) SetAddress(number int, address string) error {
 	// реализуйте обновление адреса в таблице parcel
 	// менять адрес можно только если значение статуса registered
-	var status string
-	err := s.db.QueryRow("SELECT status FROM parcel WHERE number = ?", number).Scan(&status)
+	_, err := s.db.Exec("UPDATE parcel SET address = ? WHERE number = ? AND status = 'registered'", address, number)
 	if err != nil {
-		return fmt.Errorf("не удалось обновить адрес")
-	}
-
-	if status != "registered" {
-		return fmt.Errorf("адрес можно изменить только для статуса 'registered'")
-	}
-
-	_, err = s.db.Exec("UPDATE parcel SET address = ? WHERE number = ?", address, number)
-	if err != nil {
-		return fmt.Errorf("не удалось обновить адрес")
+		return fmt.Errorf("failed to update parcel address: %w", err)
 	}
 	return nil
 }
@@ -109,19 +97,9 @@ func (s ParcelStore) SetAddress(number int, address string) error {
 func (s ParcelStore) Delete(number int) error {
 	// реализуйте удаление строки из таблицы parcel
 	// удалять строку можно только если значение статуса registered
-	var status string
-	err := s.db.QueryRow("SELECT status FROM parcel WHERE number = ?", number).Scan(&status)
+	_, err := s.db.Exec("DELETE FROM parcel WHERE number = ? AND status = 'registered'", number)
 	if err != nil {
-		return fmt.Errorf("не удалось получить статус")
-	}
-
-	if status != "registered" {
-		return nil
-	}
-
-	_, err = s.db.Exec("DELETE FROM parcel WHERE number = ?", number)
-	if err != nil {
-		return fmt.Errorf("не удалось удалить строку")
+		return fmt.Errorf("failed to delete parcel: %w", err)
 	}
 	return nil
 }
